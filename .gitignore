@@ -17,3 +17,8 @@ __pycache__/
 .cloudflare/
 node_modules/
 .artifacts/
+
+# docker compose local state
+/data/
+/secrets/
+/caddy/

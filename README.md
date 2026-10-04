@@ -1,5 +1,7 @@
 # XGift
 
+> 🐳 Docker 部署请看 [README.docker.md](README.docker.md)（`docker compose up -d`，GHCR 镜像 `ghcr.io/lniosy/x_gift_bot`）。原项目：[mizorewww/x_gift_bot](https://github.com/mizorewww/x_gift_bot)
+
 X (Twitter) Premium 礼品兑换平台。你生成兑换码发给用户，用户在网页上输入兑换码和自己的 X 用户名，系统自动完成 Premium 赠送的下单与付款。
 
 - **兑换页**：用户自助兑换，实时显示处理进度

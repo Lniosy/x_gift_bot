@@ -1,0 +1,86 @@
+# XGift - Docker Compose
+#
+# Upstream xgift-web refuses to listen on anything but a loopback IP
+# ("listen address must use a loopback IP"), and its Caddy template proxies to
+# 127.0.0.1:8787. To keep that behaviour without patching upstream code the
+# services use host networking, exactly mirroring the systemd + Caddy setup:
+#   xgift-web -> 127.0.0.1:8787 on the host, Caddy (host or the `caddy` profile)
+#   -> reverse_proxy 127.0.0.1:8787.
+#
+#   cp .env.example .env            # edit values
+#   docker compose up -d            # web only
+#   docker compose --profile caddy up -d   # web + Caddy (ports 80/443 on host)
+#   docker compose run --rm xgift-cli status   # CLI (setup/status/check/put/cards...)
+
+x-xgift-common: &xgift-common
+  image: ${XGIFT_IMAGE:-xgift:local}
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file:
+    - .env
+  network_mode: host
+  user: "10001:10001"
+  read_only: true
+  tmpfs:
+    - /tmp:mode=1777,size=64m
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  ulimits:
+    core: 0
+
+services:
+  xgift:
+    <<: *xgift-common
+    container_name: xgift
+    restart: unless-stopped
+    # Matches TimeoutStopSec=65 in deploy/xgift.service (server shuts down within 55s).
+    stop_grace_period: 65s
+    volumes:
+      - ./data:/var/lib/xgift            # vault.db, site.db, *.lock
+      - ./secrets:/etc/xgift:ro          # vault-password, admin-password, turnstile-secret
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null \"http://$${XGIFT_LISTEN:-127.0.0.1:8787}/healthz\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  # One-off CLI container: `docker compose run --rm xgift-cli <command>`.
+  # Secrets are writable here so the first-time `setup` can create the password file.
+  xgift-cli:
+    <<: *xgift-common
+    profiles: ["cli"]
+    entrypoint: ["xgift"]
+    command: ["--help"]
+    stdin_open: true
+    tty: true
+    restart: "no"
+    volumes:
+      - ./data:/var/lib/xgift
+      - ./secrets:/etc/xgift
+
+  # Optional HTTPS reverse proxy mirroring deploy/Caddyfile.
+  # Copy deploy/Caddyfile to ./caddy/Caddyfile, replace xp.example.com, set
+  # CADDYFILE=./caddy/Caddyfile in .env, then `docker compose --profile caddy up -d`.
+  # Host networking keeps the real TCP peer IP so the Cloudflare-only
+  # `remote_ip` matcher in the template keeps working.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["caddy"]
+    container_name: xgift-caddy
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      xgift:
+        condition: service_healthy
+    volumes:
+      - ${CADDYFILE:-./deploy/Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
